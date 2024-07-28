@@ -1,0 +1,278 @@
+---
+title: "LOAN APPROVAL PREDICTION"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+  html_notebook: default
+---
+
+STEP 1: READIND AND UNDERSTANDING THE DATA
+
+```{r}
+# Clear the memory and check the path for the data
+rm(list=ls())
+getwd()
+```
+```{r}
+# Change the path to the desired one
+setwd("C:\\Users\\hp\\Desktop\\Projects\\loan prediction using machine learning")
+getwd()
+```
+
+
+```{r}
+# Read the data and print the first 6 variables
+data = read.csv("loan-train.csv")
+head(data)
+```
+
+
+```{r}
+# Import the necessary libraries
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(stargazer)
+```
+
+
+```{r}
+# view the stracture of our dataset
+str(data)
+```
+```{r}
+# summarize the dataset in a table format
+stargazer(data, type = "text")
+```
+The first row 'N' shows that there are missing values int the dataset
+However, ApplicantIncome and CoapplicantIncome seems to be right skewed due to their large standard deviation. Credit histry has only two values, 0 and 1 hence its not an integre but rather a factor with two level , ie, the applicant has either taken a loan before or not. Loan_Amount_Term  appears to be symetrical.
+
+```{r}
+summary(data)
+```
+
+STEP 2: DATA CLEANING. First we check for missing values.
+```{r}
+# Lets check for missing values
+any(is.na(data))
+```
+We have missing values. lets check how many missing values do we have
+```{r}
+sum(is.na(data))
+```
+```{r}
+# now, we check if we have empty entries and convert them to NA
+colSums(is.na(data)|data == "")
+```
+```{r}
+# gender, married, dependents,Self_Employed, LoanAmount, Loan_Amount_Term and Credit_History have emty entries. we then convert them to NA
+data[data == ""] = NA
+sum(is.na(data))
+```
+We then handle the missing values
+```{r}
+data2 = na.omit(data)
+sum(is.na(data2))
+```
+We have no missing valus, nesxt we deal with datatypes
+```{r}
+# first, we convert character variable to factor form
+data3 =  as.data.frame(unclass(data2), stringsAsFactors = TRUE)
+data3$Credit_History = as.factor(data3$Credit_History)
+str(data3)
+```
+Now lets check for duplicates
+```{r}
+duplicates = duplicated(data3)|duplicated(data3, fromlast = TRUE)
+any(duplicates)
+```
+The data is now clean for analysis
+
+STEP 3: DATA VISUALIZATION (EDA)
+```{r}
+# Combine columns for income
+data4 = data3 %>% mutate(income = data3$ApplicantIncome + data3$CoapplicantIncome)
+head(data4)
+```
+```{r}
+# Now lets check the distribution for income
+hist(data4$income)
+```
+We can see that income is not normally distributed, ie, it is right skewed. Most of the data tend to lie below 20000
+```{r}
+# Visualizing the boxplot 
+boxplot(data4$income)
+```
+The variable income has also some outliers. lets try to handle the case for outliers and normality by using logarithmic transformation.
+```{r}
+data5 = data4 %>% mutate(income_transformed = log(income))
+head(data5)
+```
+
+check the privious distribution
+```{r}
+hist(data5$income_transformed)
+```
+```{r}
+boxplot(data5$income_transformed)
+```
+Income now looks to be normal with a reduced number of outliers
+lets check some other sitributions
+```{r}
+pie(table(data5$Gender))
+```
+```{r}
+pie(table(data5$Married))
+```
+```{r}
+table(data5$Education, data5$Loan_Status)
+
+barplot(table(data5$Education, data5$Loan_Status))
+```
+```{r}
+table(data5$Dependents, data5$Loan_Status)
+```
+```{r}
+# Distribution of loan status
+ggplot(data5, aes(x= data5$Loan_Status))+geom_bar()+ggtitle("Distribution of Loan Status")
+```
+
+
+STEP 4: DATA PREPROCESSING
+```{r}
+#we first driop the loan id column income, ApplicantIncome and CoapplicantIncome since we no longer need them
+data6 = data5[, !(names(data5) %in% c("Loan_ID","income","ApplicantIncome","CoapplicantIncome"))]
+head(data6)
+
+```
+
+
+```{r}
+# checking the number of observations
+dim(data6)
+```
+
+```{r}
+# dividing data into training (80%) and testing (20%)
+train_split = data6[1:384,]
+dim(train_split)
+test_split = data6[385:480,]
+dim(test_split)
+```
+```{r}
+# Apply feature scaling for numeric variables
+scale_features = function(x){
+  num_col = sapply(x, is.numeric)
+  x[num_col] = scale(x[num_col])
+  return(x)
+}
+
+scaled_train = scale_features(train_split)
+scaled_test = scale_features(test_split)
+```
+
+
+
+STEP 5: MODEL FITTING
+We will comapare different models and select the best one from
+1. logistic regression
+2. naive bayes
+4. random forest
+
+```{r}
+# first, we will use logistic regression
+attach(scaled_train)
+model = glm(Loan_Status ~ ., family = binomial(link = 'logit'), data = scaled_train)
+detach(scaled_train)
+```
+
+```{r}
+# printing the summary statistics for our logistc model
+summary(model)
+```
+Lets explain the results;
+1. We can see that, only the Intercept, LoanAmount, Credit_History1 and Property_AreaSemiurban are significant in predicting the probality of a loan to be approved due to their loww p-value (<0.05). The main significant variable is Credit_History1 showing that having a credit history strongly increases the likelihood of loan approval. 
+
+2.The intercept (-5.710799) is the baseline log-odds of loan approval when all the predictors are set to 0.
+
+3. At the top, we have a summary of the devince residual which is a measure of goodness of fit for the model. Since they are close to being centered on, they look symmetrical
+
+4. The coeeficient for the GenderMale (0,442876) shows that, being male increases the log-odds of loan approval compare to the baseline category (female)
+
+5. For education, not being a graduate reduces the log-odd of loan approval by 0.388078.
+
+Based on the above explanations, the other variables applies the same explanations compared to the respective baseline categories.
+
+The null deviance is the deviance of the model with only the intercept
+The residual deviance is the model with the predictors included
+The AIC (Akaike Information Criterion) is the is a measure of the model quality.
+```{r}
+# performing a chi-square tets for the model
+anova(model, test = "Chisq")
+```
+
+```{r}
+# now lets apply the fitted model to the test dataset
+fitted.results = predict(model, scaled_train, type = 'response')
+fitted.results = ifelse(fitted.results > 0.5,1,0)
+misClasificError = mean(fitted.results != scaled_train$Loan_Status)
+head(fitted.results)
+
+```
+
+STEP 5: This the last step
+it involves ploting the ROC curve and calculating the AUC.
+
+
+TO BE CONTINUED.....
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
